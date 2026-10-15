@@ -4,7 +4,7 @@ Chỉ cần một lệnh là có file cài. Script tự cài thư viện nếu t
 
 | Hệ điều hành | File tạo ra (trong `dist/`) | Cách dùng |
 |---|---|---|
-| Linux | `Git Sync-<version>.AppImage` | Một file duy nhất, không cần cài |
+| Linux | `git-sync-desktop_<version>_amd64.deb` | Cài bằng `dpkg -i`, có shortcut trong menu ứng dụng |
 | Windows | `Git Sync Setup <version>.exe` | Bộ cài: chọn thư mục cài, tạo shortcut, gỡ được trong Settings |
 | Windows | `Git Sync <version>.exe` | Bản portable: chạy luôn, không cần cài |
 
@@ -16,7 +16,7 @@ Máy build cần có [Node.js 18+](https://nodejs.org). Máy chạy app cần c�
 ./build.sh
 ```
 
-Kết quả: `dist/Git Sync-<version>.AppImage`
+Kết quả: `dist/git-sync-desktop_<version>_amd64.deb`
 
 ## Windows
 
@@ -50,17 +50,26 @@ npm run build -- --version 1.2.0
 
 ## Cài và chạy
 
-**Linux (AppImage):**
+**Linux (.deb):**
 
 ```bash
-chmod +x "Git Sync-1.0.0.AppImage"
-./"Git Sync-1.0.0.AppImage"
+sudo dpkg -i dist/git-sync-desktop_1.0.0_amd64.deb
 ```
 
-Sau khi cấp quyền chạy, có thể bấm đúp vào file để mở.
+Nếu `dpkg` báo thiếu gói phụ thuộc (ví dụ `git`, `libnss3`), chạy thêm lệnh sau để tự cài các gói còn thiếu và hoàn tất cài đặt:
 
-- **Ubuntu 24.04 trở lên:** hệ điều hành chặn sandbox của Chromium. App tự phát hiện việc này và chạy với `--no-sandbox`, bạn không cần làm gì thêm. Phần xử lý nằm ở `build/after-pack.js`.
-- **Báo lỗi `libfuse.so.2`:** cài FUSE bằng `sudo apt install libfuse2t64` (Ubuntu 24.04+) hoặc `sudo apt install libfuse2` (Ubuntu 22.04).
+```bash
+sudo apt -f install
+```
+
+Cũng có thể cài bằng `sudo apt install ./dist/git-sync-desktop_1.0.0_amd64.deb`, lệnh này tự cài luôn gói phụ thuộc.
+
+Sau khi cài:
+
+- Mở app từ menu ứng dụng (tìm “Git Sync”) hoặc chạy lệnh `git-sync-desktop`.
+- Cập nhật bản mới: build lại rồi chạy lại `sudo dpkg -i` với file mới.
+- Gỡ app: `sudo dpkg -r git-sync-desktop`. Dữ liệu của app (danh sách repo, token, cài đặt) nằm ở `~/.config/git-sync-desktop/`, xoá thư mục này nếu muốn xoá sạch.
+- Ubuntu 24.04 trở lên: script cài đặt (`build/linux-after-install.sh`) cấp quyền SUID cho `chrome-sandbox`, nên app chạy với sandbox đầy đủ mà không cần `--no-sandbox`.
 
 **Windows:** chạy `Git Sync Setup <version>.exe` rồi làm theo các bước cài đặt.
 
@@ -85,4 +94,4 @@ Cài xong thì chạy `./build.sh win` hoặc `./build.sh all`. Nếu không mu�
 | `Electron failed to install correctly` | Xoá `node_modules` rồi chạy lại script |
 | `Node.js 18+ is required` | Cài Node.js bản mới hơn |
 | Windows build failed + `32-bit Wine` | Cài wine32 (mục trên) hoặc build trên máy Windows |
-| AppImage báo lỗi `libfuse.so.2` | `sudo apt install libfuse2t64` |
+| `dpkg: dependency problems` khi cài | `sudo apt -f install` |

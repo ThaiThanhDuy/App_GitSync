@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a2a30"/>
+      <stop offset="1" stop-color="#141417"/>
+    </linearGradient>
+  </defs>
+  <!-- Nền ô vuông bo góc (chừa lề 64px như icon desktop chuẩn) -->
+  <rect x="64" y="64" width="896" height="896" rx="208" fill="url(#bg)"/>
+  <rect x="65" y="65" width="894" height="894" rx="207" fill="none" stroke="#ffffff" stroke-opacity=".08" stroke-width="2"/>
+  <!-- Logo đồng bộ: cùng path với symbol #i-logo trong app (viewBox 24), phóng to ×20 -->
+  <g transform="translate(272 272) scale(20)" fill="none" stroke="#ededef" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M20 11a8 8 0 0 0-14.3-4.9L4 8"/>
+    <path d="M4 3v5h5"/>
+    <path d="M4 13a8 8 0 0 0 14.3 4.9L20 16"/>
+    <path d="M20 21v-5h-5"/>
+  </g>
+</svg>

@@ -43,7 +43,7 @@ Device Flow cần Client ID của một GitHub OAuth App:
 Xem chi tiết trong [BUILD.md](BUILD.md).
 
 ```bash
-./build.sh           # Linux: dist/Git Sync-<version>.AppImage
+./build.sh           # Linux: dist/git-sync-desktop_<version>_amd64.deb
 build.bat            # Windows: bộ cài .exe và bản portable .exe trong dist\
 ```
 

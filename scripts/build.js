@@ -2,7 +2,7 @@
 // Build file cài đặt bằng một lệnh.
 //
 //   node scripts/build.js                  build cho hệ điều hành đang chạy
-//   node scripts/build.js linux            chỉ Linux (.AppImage)
+//   node scripts/build.js linux            chỉ Linux (.deb)
 //   node scripts/build.js win              chỉ Windows (.exe cài đặt + .exe portable)
 //   node scripts/build.js all              cả hai (build Windows trên Linux cần wine32)
 //   node scripts/build.js --version 1.2.0  đổi version trong package.json trước khi build
@@ -76,16 +76,24 @@ async function main() {
   fs.rmSync(DIST, { recursive: true, force: true });
 
   const builder = require('electron-builder');
+  // Linux: thư mục cài /opt/<productName> không được có dấu cách — chrome-sandbox (SUID) cắt
+  // đường dẫn tại dấu cách khi khởi chạy tiến trình con → crash "failed to execvp: /opt/Git".
+  // Tên hiển thị trong menu vẫn là "Git Sync" nhờ desktop.Name. Windows giữ productName gốc.
+  const linuxConfig = {
+    ...pkg.build,
+    productName: pkg.name,
+    linux: { ...pkg.build.linux, desktop: { Name: pkg.build.productName } },
+  };
   const platforms = [];
-  if (opts.targets === 'linux' || opts.targets === 'all') platforms.push(['Linux', builder.Platform.LINUX]);
-  if (opts.targets === 'win' || opts.targets === 'all') platforms.push(['Windows', builder.Platform.WINDOWS]);
+  if (opts.targets === 'linux' || opts.targets === 'all') platforms.push(['Linux', builder.Platform.LINUX, linuxConfig]);
+  if (opts.targets === 'win' || opts.targets === 'all') platforms.push(['Windows', builder.Platform.WINDOWS, undefined]);
 
   const artifacts = [];
-  for (const [name, platform] of platforms) {
+  for (const [name, platform, config] of platforms) {
     step(`Building ${name} v${pkg.version}…`);
     try {
-      const files = await builder.build({ targets: platform.createTarget(), projectDir: ROOT });
-      artifacts.push(...files.filter((f) => /\.(AppImage|exe)$/.test(f)));
+      const files = await builder.build({ targets: platform.createTarget(), projectDir: ROOT, config });
+      artifacts.push(...files.filter((f) => /\.(deb|exe)$/.test(f)));
     } catch (e) {
       const msg = String(e.message || e);
       if (platform === builder.Platform.WINDOWS && process.platform !== 'win32') {
