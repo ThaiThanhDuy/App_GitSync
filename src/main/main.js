@@ -1,4 +1,8 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, nativeTheme } = require('electron');
+const {
+  app, BrowserWindow, ipcMain, dialog, shell, clipboard, nativeTheme, Tray, Menu, nativeImage, Notification,
+} = require('electron');
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const store = require('./store');
 const auth = require('./auth');
@@ -6,10 +10,25 @@ const git = require('./git');
 const pkg = require('../../package.json');
 
 let win = null;
+let tray = null;
+let quitting = false;
+let trayState = { needSync: 0, total: 0 };
 let deviceFlow = null; // { flow, clientId, abort }
 
-function createWindow() {
+const ASSETS = path.join(__dirname, '..', 'assets');
+const startHidden = process.argv.includes('--hidden');
+
+// Chỉ cho chạy một bản; mở lần hai → hiện cửa sổ đang chạy.
+const primaryInstance = app.requestSingleInstanceLock();
+if (!primaryInstance) {
+  app.quit();
+} else {
+  app.on('second-instance', () => showWindow());
+}
+
+function createWindow({ show = true } = {}) {
   win = new BrowserWindow({
+    show,
     width: 980,
     height: 680,
     minWidth: 720,
@@ -23,9 +42,27 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // Tự kiểm tra theo chu kỳ phải chạy cả khi cửa sổ đang ẩn trong khay.
+      backgroundThrottling: false,
     },
   });
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+
+  // Đóng cửa sổ → ẩn xuống khay (nếu bật), app vẫn chạy và tự kiểm tra.
+  win.on('close', (e) => {
+    if (quitting || !trayEnabled()) return;
+    e.preventDefault();
+    win.hide();
+    if (!store.get('trayHintShown') && Notification.isSupported()) {
+      store.set('trayHintShown', true);
+      new Notification({
+        title: 'Git Sync is still running',
+        body: 'It keeps checking your repositories in the background. Quit from the tray icon.',
+        icon: path.join(ASSETS, 'icon.png'),
+      }).show();
+    }
+  });
+  win.on('closed', () => { win = null; });
 
   // Link ngoài luôn mở bằng trình duyệt mặc định.
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -43,6 +80,78 @@ const checkInterval = () => {
   const n = Number(store.get('checkInterval', CHECK_DEFAULT));
   return Number.isInteger(n) && n >= CHECK_MIN && n <= CHECK_MAX ? n : CHECK_DEFAULT;
 };
+const trayEnabled = () => store.get('tray', true) !== false;
+
+function showWindow() {
+  if (!win) createWindow();
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+}
+
+// ---------- Tray ----------
+function trayImage() {
+  return nativeImage.createFromPath(path.join(ASSETS, trayState.needSync ? 'tray-alert.png' : 'tray.png'));
+}
+
+function updateTray() {
+  if (!tray) return;
+  const { needSync, total } = trayState;
+  tray.setImage(trayImage());
+  tray.setToolTip(needSync ? `Git Sync — ${needSync}/${total} need sync` : `Git Sync — ${total} repos up to date`);
+  const send = (cmd) => () => win?.webContents.send('tray:command', cmd);
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Show Git Sync', click: showWindow },
+    { type: 'separator' },
+    { label: 'Check all now', click: send('checkAll') },
+    { label: needSync ? `Sync all (${needSync})` : 'Sync all', enabled: needSync > 0, click: send('syncAll') },
+    { type: 'separator' },
+    { label: 'Quit', click: () => { quitting = true; app.quit(); } },
+  ]));
+}
+
+function setupTray() {
+  if (!trayEnabled()) {
+    tray?.destroy();
+    tray = null;
+    return;
+  }
+  if (!tray) {
+    tray = new Tray(trayImage());
+    tray.on('click', showWindow); // Windows; trên Linux (AppIndicator) click mở menu.
+  }
+  updateTray();
+}
+
+// ---------- Tự khởi động cùng hệ thống ----------
+const autostartFile = () => path.join(os.homedir(), '.config', 'autostart', 'git-sync-desktop.desktop');
+
+function getAutostart() {
+  if (process.platform === 'linux') return fs.existsSync(autostartFile());
+  return app.getLoginItemSettings({ args: ['--hidden'] }).openAtLogin;
+}
+
+function setAutostart(on) {
+  if (process.platform === 'linux') {
+    const file = autostartFile();
+    if (!on) return fs.rmSync(file, { force: true });
+    const q = (p) => (/\s/.test(p) ? `"${p}"` : p);
+    const exec = app.isPackaged ? q(process.execPath) : `${q(process.execPath)} ${q(app.getAppPath())}`;
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, [
+      '[Desktop Entry]',
+      'Type=Application',
+      'Name=Git Sync',
+      `Exec=${exec} --hidden`,
+      'Icon=git-sync-desktop',
+      'X-GNOME-Autostart-enabled=true',
+      '',
+    ].join('\n'));
+  } else {
+    app.setLoginItemSettings({ openAtLogin: on, args: ['--hidden'] });
+  }
+}
+
 const themeBackground = () => (nativeTheme.shouldUseDarkColors ? '#0c0c0e' : '#fafafa');
 
 function clientId() {
@@ -155,7 +264,10 @@ ipcMain.handle('repos:remove', (_e, repoPath) => {
 ipcMain.handle('repos:status', (_e, repoPath, doFetch) =>
   git.getStatus(repoPath, { fetch: !!doFetch, token: store.getToken() }));
 
-ipcMain.handle('repos:pull', (_e, repoPath) => git.pull(repoPath, store.getToken()));
+ipcMain.handle('repos:pull', (_e, repoPath, opts) => git.pull(repoPath, store.getToken(), { rebase: !!opts?.rebase }));
+ipcMain.handle('repos:branches', (_e, repoPath) => git.branches(repoPath));
+ipcMain.handle('repos:switch', (_e, repoPath, name, opts) => git.switchBranch(repoPath, String(name), { remote: !!opts?.remote }));
+ipcMain.handle('repos:fileDiff', (_e, repoPath, hash, file, from) => git.fileDiff(repoPath, hash, file, from));
 ipcMain.handle('repos:push', (_e, repoPath) => git.push(repoPath, store.getToken()));
 ipcMain.handle('repos:changes', (_e, repoPath) => git.changes(repoPath));
 ipcMain.handle('repos:log', (_e, repoPath, opts) => git.log(repoPath, opts));
@@ -172,6 +284,8 @@ ipcMain.handle('settings:get', () => ({
   theme: nativeTheme.themeSource,
   version: pkg.version,
   checkInterval: checkInterval(),
+  tray: trayEnabled(),
+  autostart: getAutostart(),
   electron: process.versions.electron,
   platform: `${process.platform} ${process.arch}`,
 }));
@@ -190,16 +304,36 @@ ipcMain.handle('settings:setCheckInterval', (_e, minutes) => {
   return checkInterval();
 });
 
+ipcMain.handle('settings:setTray', (_e, on) => {
+  store.set('tray', !!on);
+  setupTray();
+  return trayEnabled();
+});
+
+ipcMain.handle('settings:setAutostart', (_e, on) => {
+  setAutostart(!!on);
+  return getAutostart();
+});
+
+// Renderer báo số repo cần sync để cập nhật icon/menu khay.
+ipcMain.on('tray:update', (_e, state) => {
+  trayState = { needSync: Number(state?.needSync) || 0, total: Number(state?.total) || 0 };
+  updateTray();
+});
+
 nativeTheme.on('updated', () => win?.setBackgroundColor(themeBackground()));
 
 app.whenReady().then(() => {
+  if (!primaryInstance) return;
   const theme = store.get('theme', 'system');
   nativeTheme.themeSource = THEMES.includes(theme) ? theme : 'system';
-  createWindow();
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
+  setupTray();
+  // Khởi động cùng hệ thống (--hidden) → chạy ngầm trong khay, không bật cửa sổ.
+  createWindow({ show: !(startHidden && tray) });
+  app.on('activate', showWindow);
 });
+
+app.on('before-quit', () => { quitting = true; });
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

@@ -26,9 +26,10 @@ function toast(msg, kind = 'ok', ms = 4000) {
 }
 
 // ======================= Dialog xác nhận =======================
-function confirmDialog(title, text, okText = 'Remove') {
+function confirmDialog(title, text, okText = 'Remove', { danger = true } = {}) {
   const dlg = $('#confirm');
   $('#confirm-ok').textContent = okText;
+  $('#confirm-ok').className = `btn ${danger ? 'danger' : 'primary'}`;
   $('#confirm-title').textContent = title;
   $('#confirm-text').textContent = text;
   return new Promise((resolve) => {
@@ -64,12 +65,22 @@ function setLoginBusy(busy) {
   }
 }
 
+let loginConfig = { clientId: '' };
+
+function renderDeviceOption() {
+  const ready = !!loginConfig.clientId;
+  $('#btn-device .option-sub').textContent = ready
+    ? 'Confirm with a code on github.com'
+    : 'Needs an OAuth Client ID — click to set up';
+}
+
 async function showLogin() {
   for (const v of ['#main-view', '#history-view', '#settings-view']) $(v).classList.add('hidden');
   $('#login-view').classList.remove('hidden');
   showPane('choose');
-  const cfg = await api.auth.config();
-  $('#input-client-id').value = cfg.clientId || '';
+  loginConfig = await api.auth.config();
+  $('#input-client-id').value = loginConfig.clientId || '';
+  renderDeviceOption();
 }
 
 async function loginWith(fn, { onErrorPane } = {}) {
@@ -92,7 +103,15 @@ for (const btn of document.querySelectorAll('[data-back]')) {
 $('#btn-show-token').addEventListener('click', () => showPane('token'));
 $('#btn-show-advanced').addEventListener('click', () => showPane('advanced'));
 
-$('#btn-device').addEventListener('click', () => loginWith(async () => {
+$('#btn-device').addEventListener('click', () => {
+  if (!loginConfig.clientId) {
+    showPane('advanced');
+    return;
+  }
+  startDeviceLogin();
+});
+
+const startDeviceLogin = () => loginWith(async () => {
   const flow = await api.auth.deviceStart();
   $('#device-code').textContent = flow.userCode;
   $('#device-code').onclick = () => {
@@ -103,7 +122,7 @@ $('#btn-device').addEventListener('click', () => loginWith(async () => {
   showPane('device');
   setLoginBusy(true);
   return api.auth.deviceWait();
-}, { onErrorPane: 'choose' }));
+}, { onErrorPane: 'choose' });
 
 $('#btn-device-cancel').addEventListener('click', () => api.auth.deviceCancel());
 
@@ -120,8 +139,12 @@ $('#link-new-token').addEventListener('click', () => {
   api.openUrl('https://github.com/settings/tokens/new?scopes=repo,read:org&description=Git%20Sync%20Desktop');
 });
 
+$('#link-oauth-app').addEventListener('click', () => api.openUrl('https://github.com/settings/applications/new'));
+
 $('#btn-client-id').addEventListener('click', async () => {
   await api.auth.setClientId($('#input-client-id').value);
+  loginConfig = await api.auth.config();
+  renderDeviceOption();
   showPane('choose');
   toast('Client ID saved', 'ok', 2000);
 });
@@ -131,6 +154,8 @@ $('#btn-logout').addEventListener('click', async () => {
   if (!(await confirmDialog('Sign out?', 'You will need to sign in again to keep using the app.', 'Sign out'))) return;
   await api.auth.logout();
   clearInterval(autoTimer);
+  currentUser = null;
+  $('#auth-banner').classList.add('hidden');
   showLogin();
 });
 
@@ -255,6 +280,8 @@ function describe(entry) {
       return { state: 'ok', icon: 'check', text: `Up to date with ${s.upstream}` };
     case 'behind':
       return { state: 'bad', icon: 'x', text: `Behind ${s.upstream} by ${plural(s.behind, 'commit')}` };
+    case 'diverged':
+      return { state: 'bad', icon: 'x', text: `Diverged from ${s.upstream}: ${s.ahead} local, ${s.behind} remote ${s.behind === 1 ? 'commit' : 'commits'}` };
     case 'no-upstream':
       return { state: 'warn', icon: 'alert', text: 'Branch has no upstream' };
     case 'detached':
@@ -275,6 +302,7 @@ function createRow(p) {
   $('.path', li).title = p;
   $('.act-sync', li).onclick = () => syncRepo(p);
   $('.act-commit', li).onclick = () => openCommit(p);
+  $('.branch', li).onclick = (e) => openBranchMenu(p, e.currentTarget);
   $('.act-push', li).onclick = () => pushRepo(p);
   $('.act-refresh', li).onclick = () => checkRepo(p);
   $('.act-open', li).onclick = () => api.openFolder(p);
@@ -481,8 +509,9 @@ renderSortControls();
 function renderSummary() {
   const el = $('#summary');
   const all = [...repos.values()];
-  const behind = all.filter((e) => !e.busy && e.status?.state === 'behind').length;
+  const behind = all.filter((e) => !e.busy && needsSync(e)).length;
   const busy = all.some((e) => e.busy);
+  api.tray.update({ needSync: behind, total: all.length });
   el.className = `summary ${behind ? 'bad' : busy ? '' : 'ok'}`;
   el.classList.toggle('hidden', !all.length);
   el.innerHTML = '<span class="dot"></span>';
@@ -491,8 +520,27 @@ function renderSummary() {
       : behind ? `${behind}/${all.length} need sync`
         : `${plural(all.length, 'repo')} · all up to date`,
   );
-  $('#btn-sync-all').disabled = !behind;
+  $('#btn-sync-all').disabled = !all.some((e) => e.status?.state === 'behind');
 }
+
+const needsSync = (e) => e.status?.state === 'behind' || e.status?.state === 'diverged';
+
+// Lỗi xác thực khi fetch/pull/push → kiểm tra lại token với GitHub (tối đa 1 lần/phút).
+const AUTH_ERROR = /authentication failed|could not read username|invalid username or password|bad credentials|http(?: basic)?:? ?(?:401|403)|the requested url returned error: (?:401|403)/i;
+let lastAuthCheck = 0;
+
+async function checkAuthError(message) {
+  if (!message || !AUTH_ERROR.test(message) || Date.now() - lastAuthCheck < 60000) return;
+  lastAuthCheck = Date.now();
+  const session = await api.auth.session();
+  if (!session) $('#auth-banner').classList.remove('hidden');
+}
+
+$('#btn-reauth').addEventListener('click', () => {
+  $('#auth-banner').classList.add('hidden');
+  clearInterval(autoTimer);
+  showLogin();
+});
 
 async function checkRepo(p) {
   const entry = repos.get(p);
@@ -501,6 +549,7 @@ async function checkRepo(p) {
   render();
   try {
     entry.status = await api.repos.status(p, true);
+    checkAuthError(entry.status.fetchError);
   } catch (e) {
     entry.error = errMsg(e);
   }
@@ -511,17 +560,32 @@ async function checkRepo(p) {
 async function syncRepo(p, { quiet = false } = {}) {
   const entry = repos.get(p);
   if (!entry || entry.busy) return false;
-  Object.assign(entry, { busy: true, busyText: 'Pulling…', error: null });
+  const s = entry.status;
+  let rebase = false;
+  if (s?.state === 'diverged') {
+    // Pull --ff-only chắc chắn thất bại khi diverged → đề nghị rebase.
+    if (quiet) return false;
+    rebase = await confirmDialog(
+      'Branch has diverged',
+      `“${s.branch}” has ${plural(s.ahead, 'local commit')} that ${s.upstream} doesn't have, and is missing ${plural(s.behind, 'commit')} from it.\n\n`
+        + `Rebase your local commits on top of ${s.upstream}? If there are conflicts, the rebase is cancelled and nothing changes.`,
+      'Pull (rebase)',
+      { danger: false },
+    );
+    if (!rebase) return false;
+  }
+  Object.assign(entry, { busy: true, busyText: rebase ? 'Rebasing…' : 'Pulling…', error: null });
   render();
   let ok = false;
   try {
-    const res = await api.repos.pull(p);
+    const res = await api.repos.pull(p, { rebase });
     entry.status = res.status;
     ok = true;
-    if (!quiet) toast(`Synced ${baseName(p)}`, 'ok', 2500);
+    if (!quiet) toast(rebase ? `Rebased ${baseName(p)} onto ${res.status.upstream}` : `Synced ${baseName(p)}`, 'ok', 2500);
   } catch (e) {
     entry.error = `Sync failed: ${errMsg(e)}`;
-    if (!quiet) toast(`${baseName(p)}: ${errMsg(e)}`, 'bad', 6000);
+    if (!quiet) toast(`${baseName(p)}: ${errMsg(e)}`, 'bad', 7000);
+    checkAuthError(errMsg(e));
   }
   entry.busy = false;
   render();
@@ -554,6 +618,7 @@ async function pushRepo(p) {
     toast(res.published ? `Published ${baseName(p)} to ${res.status.upstream}` : `Pushed ${baseName(p)}`, 'ok', 2500);
   } catch (e) {
     entry.error = `Push failed: ${errMsg(e)}`;
+    checkAuthError(errMsg(e));
     toast(`${baseName(p)}: ${errMsg(e)}`, 'bad', 6000);
   }
   entry.busy = false;
@@ -569,13 +634,21 @@ async function runPool(items, fn) {
   await Promise.all(workers);
 }
 
+let checkingAll = false;
+
 async function checkAll() {
+  if (checkingAll) return;
+  checkingAll = true;
   const btn = $('#btn-check-all');
   btn.disabled = true;
   btn.classList.add('spinning');
-  await runPool([...repos.keys()], checkRepo);
-  btn.disabled = false;
-  btn.classList.remove('spinning');
+  try {
+    await runPool([...repos.keys()], checkRepo);
+  } finally {
+    checkingAll = false;
+    btn.disabled = false;
+    btn.classList.remove('spinning');
+  }
   $('#last-check').textContent = `Last checked at ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`;
 }
 
@@ -616,6 +689,140 @@ async function addRepos() {
   if (errors.length) toast(`Could not add:\n${errors.join('\n')}`, 'bad', 7000);
   added.forEach((r) => checkRepo(r.path));
 }
+
+// ======================= Đổi nhánh =======================
+const branchMenu = { path: null, data: null, anchor: null };
+
+function closeBranchMenu() {
+  $('#branch-menu').classList.add('hidden');
+  branchMenu.anchor?.setAttribute('aria-expanded', 'false');
+  branchMenu.path = null;
+  branchMenu.anchor = null;
+}
+
+function positionMenu(menu, anchor) {
+  const r = anchor.getBoundingClientRect();
+  const width = 300;
+  menu.style.left = `${Math.min(Math.max(8, r.left), window.innerWidth - width - 8)}px`;
+  if (window.innerHeight - r.bottom < 340 && r.top > window.innerHeight - r.bottom) {
+    menu.style.top = '';
+    menu.style.bottom = `${window.innerHeight - r.top + 6}px`;
+  } else {
+    menu.style.bottom = '';
+    menu.style.top = `${r.bottom + 6}px`;
+  }
+}
+
+async function openBranchMenu(p, anchor) {
+  const entry = repos.get(p);
+  if (!entry || entry.busy) return;
+  if (branchMenu.anchor === anchor) return closeBranchMenu();
+  closeBranchMenu();
+  Object.assign(branchMenu, { path: p, anchor, data: null });
+  anchor.setAttribute('aria-expanded', 'true');
+  const menu = $('#branch-menu');
+  $('#branch-filter').value = '';
+  $('#branch-list').innerHTML = '<li class="bm-empty"><span class="ring"></span></li>';
+  positionMenu(menu, anchor);
+  menu.classList.remove('hidden');
+  $('#branch-filter').focus();
+  try {
+    const data = await api.repos.branches(p);
+    if (branchMenu.path !== p) return;
+    branchMenu.data = data;
+    renderBranchList();
+  } catch (e) {
+    closeBranchMenu();
+    toast(errMsg(e), 'bad');
+  }
+}
+
+function renderBranchList() {
+  const { local, remote } = branchMenu.data;
+  const q = fold($('#branch-filter').value);
+  const ul = $('#branch-list');
+  ul.innerHTML = '';
+  const section = (title, items, isRemote) => {
+    const list = items.filter((b) => !q || fold(b.name).includes(q));
+    if (!list.length) return;
+    const head = document.createElement('li');
+    head.className = 'bm-head';
+    head.textContent = title;
+    ul.appendChild(head);
+    for (const b of list) {
+      const li = document.createElement('li');
+      const btn = document.createElement('button');
+      btn.className = `bm-item${b.current ? ' current' : ''}`;
+      setIcon(btn, isRemote ? 'cloud' : 'branch');
+      const name = document.createElement('span');
+      name.className = 'bm-name';
+      name.textContent = b.name;
+      name.title = b.name;
+      const meta = document.createElement('span');
+      meta.className = 'bm-meta';
+      meta.textContent = b.date ? relTime(b.date) : '';
+      btn.append(name, meta);
+      if (b.current) btn.insertAdjacentHTML('beforeend', '<svg class="i bm-check"><use href="#i-check"/></svg>');
+      btn.onclick = () => (b.current ? closeBranchMenu() : switchToBranch(b.name, isRemote));
+      li.appendChild(btn);
+      ul.appendChild(li);
+    }
+  };
+  section('Local branches', local, false);
+  section('Remote branches', remote, true);
+  if (!ul.children.length) {
+    ul.innerHTML = '<li class="bm-empty">No matching branches</li>';
+  }
+}
+
+async function switchToBranch(name, remote) {
+  const p = branchMenu.path;
+  closeBranchMenu();
+  const entry = repos.get(p);
+  if (!entry || entry.busy) return;
+  Object.assign(entry, { busy: true, busyText: `Switching to ${name}…`, error: null });
+  render();
+  try {
+    entry.status = await api.repos.switchBranch(p, name, { remote });
+    toast(`Switched to ${entry.status.branch}`, 'ok', 2000);
+  } catch (e) {
+    toast(`${baseName(p)}: ${errMsg(e)}`, 'bad', 7000);
+  }
+  entry.busy = false;
+  render();
+}
+
+$('#branch-filter').addEventListener('input', () => branchMenu.data && renderBranchList());
+$('#branch-filter').addEventListener('keydown', (e) => {
+  e.stopPropagation();
+  if (e.key === 'Escape') closeBranchMenu();
+  if (e.key === 'Enter') $('#branch-list .bm-item')?.click();
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    $('#branch-list .bm-item')?.focus();
+  }
+});
+$('#branch-list').addEventListener('keydown', (e) => {
+  const items = [...document.querySelectorAll('#branch-list .bm-item')];
+  const i = items.indexOf(document.activeElement);
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    const next = items[i + (e.key === 'ArrowDown' ? 1 : -1)];
+    if (next) next.focus();
+    else if (e.key === 'ArrowUp') $('#branch-filter').focus();
+  }
+  if (e.key === 'Escape') {
+    e.stopPropagation();
+    closeBranchMenu();
+  }
+});
+document.addEventListener('click', (e) => {
+  if (branchMenu.anchor && !e.target.closest('#branch-menu') && !branchMenu.anchor.contains(e.target)) closeBranchMenu();
+});
+window.addEventListener('resize', closeBranchMenu);
+document.addEventListener('scroll', (e) => {
+  if (!(e.target instanceof Element && e.target.closest('#branch-menu'))) closeBranchMenu();
+}, true);
 
 // ======================= Commit =======================
 const FILE_LABELS = { M: 'Modified', A: 'Added', D: 'Deleted', R: 'Renamed', C: 'Copied', U: 'Untracked' };
@@ -723,6 +930,11 @@ $('#commit-dlg').addEventListener('cancel', (e) => { if (committing) e.preventDe
 $('#btn-add').addEventListener('click', addRepos);
 $('#btn-add-empty').addEventListener('click', addRepos);
 $('#btn-check-all').addEventListener('click', checkAll);
+api.tray.onCommand((cmd) => {
+  if (!currentUser) return;
+  if (cmd === 'checkAll') checkAll();
+  if (cmd === 'syncAll') syncAll();
+});
 $('#btn-sync-all').addEventListener('click', syncAll);
 
 // ======================= Khởi động =======================

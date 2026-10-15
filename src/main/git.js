@@ -2,16 +2,35 @@
 // chỉ áp dụng cho https://github.com (giống `gh auth setup-git`), đọc token từ biến
 // môi trường nên không lộ trên dòng lệnh.
 const { execFile } = require('child_process');
+const fs = require('fs');
+const path = require('path');
 
 const CRED_HELPER = '!f() { echo username=x-access-token; echo "password=$GIT_SYNC_TOKEN"; }; f';
 
-function git(cwd, args, { token, timeout = 120000, raw = false } = {}) {
+// SSH không được hỏi gì (passphrase, xác nhận host key): app không có terminal để trả lời,
+// nếu không lệnh sẽ treo tới hết timeout. Chỉ áp dụng khi người dùng chưa tự cấu hình
+// GIT_SSH_COMMAND / core.sshCommand (biến môi trường sẽ đè cấu hình của họ).
+const BATCH_SSH = 'ssh -o BatchMode=yes -o ConnectTimeout=15';
+const sshConfigCache = new Map();
+
+async function sshCommandFor(cwd) {
+  if (process.env.GIT_SSH_COMMAND || process.env.GIT_SSH) return null;
+  if (!sshConfigCache.has(cwd)) {
+    sshConfigCache.set(cwd, (await tryGit(cwd, ['config', '--get', 'core.sshCommand'])) ? null : BATCH_SSH);
+  }
+  return sshConfigCache.get(cwd);
+}
+
+function git(cwd, args, { token, timeout = 120000, raw = false, sshCommand = null } = {}) {
+  // Thư mục bị xoá/di chuyển: execFile cũng trả ENOENT như khi thiếu git → báo rõ ràng.
+  if (!fs.existsSync(cwd)) return Promise.reject(new Error(`Folder not found: ${cwd}`));
   const pre = [];
   const env = { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' };
   if (token) {
     pre.push('-c', 'credential.https://github.com.helper=', '-c', `credential.https://github.com.helper=${CRED_HELPER}`);
     env.GIT_SYNC_TOKEN = token;
   }
+  if (sshCommand) env.GIT_SSH_COMMAND = sshCommand;
   return new Promise((resolve, reject) => {
     execFile('git', [...pre, ...args], { cwd, env, timeout, windowsHide: true, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
       if (err) {
@@ -32,6 +51,11 @@ async function tryGit(cwd, args) {
   }
 }
 
+// Lệnh có kết nối mạng (fetch/pull/push): thêm token + SSH không tương tác.
+async function netGit(cwd, args, token, timeout) {
+  return git(cwd, args, { token, timeout, sshCommand: await sshCommandFor(cwd) });
+}
+
 // Trả về thư mục gốc của repo, hoặc ném lỗi nếu thư mục chưa `git init`.
 async function resolveRepo(folder) {
   try {
@@ -46,6 +70,7 @@ async function resolveRepo(folder) {
 
 async function getStatus(cwd, { fetch = false, token } = {}) {
   const status = { path: cwd, checkedAt: Date.now() };
+  if (!fs.existsSync(cwd)) return { ...status, state: 'error', error: `Folder not found: ${cwd}` };
 
   const ct = await tryGit(cwd, ['log', '-1', '--format=%ct']);
   status.lastCommitAt = ct ? Number(ct) * 1000 : null;
@@ -62,7 +87,7 @@ async function getStatus(cwd, { fetch = false, token } = {}) {
 
   if (fetch) {
     try {
-      await git(cwd, ['fetch', '--prune', '--quiet'], { token });
+      await netGit(cwd, ['fetch', '--prune', '--quiet'], token, 60000);
     } catch (e) {
       status.fetchError = e.message;
     }
@@ -82,15 +107,33 @@ async function getStatus(cwd, { fetch = false, token } = {}) {
   status.behind = behind;
 
   if (status.fetchError) status.state = 'error';
+  else if (behind > 0 && ahead > 0) status.state = 'diverged';
   else status.state = behind > 0 ? 'behind' : 'uptodate';
   return status;
 }
 
-async function pull(cwd, token) {
-  // --ff-only: không tự tạo merge commit; nếu nhánh bị lệch (diverged) sẽ báo lỗi để bạn tự xử lý.
-  const output = await git(cwd, ['pull', '--ff-only'], { token, timeout: 300000 });
-  const status = await getStatus(cwd);
-  return { output, status };
+async function isRebasing(cwd) {
+  for (const dir of ['rebase-merge', 'rebase-apply']) {
+    const p = await tryGit(cwd, ['rev-parse', '--git-path', dir]);
+    if (p && fs.existsSync(path.resolve(cwd, p))) return true;
+  }
+  return false;
+}
+
+// Mặc định --ff-only: không tự tạo merge commit. rebase = true dùng khi nhánh đã diverged:
+// đặt commit local lên trên upstream; nếu xung đột thì huỷ rebase để repo trở lại như cũ.
+async function pull(cwd, token, { rebase = false } = {}) {
+  let output;
+  try {
+    output = await netGit(cwd, ['pull', rebase ? '--rebase' : '--ff-only'], token, 300000);
+  } catch (e) {
+    if (rebase && (await isRebasing(cwd))) {
+      await tryGit(cwd, ['rebase', '--abort']);
+      throw new Error(`Rebase hit conflicts and was aborted — nothing was changed. Resolve it manually in a terminal.\n${e.message}`);
+    }
+    throw e;
+  }
+  return { output, status: await getStatus(cwd) };
 }
 
 // Push nhánh hiện tại. Chưa có upstream thì publish lên origin và đặt upstream (-u).
@@ -101,7 +144,7 @@ async function push(cwd, token) {
     if (!(await tryGit(cwd, ['remote', 'get-url', 'origin']))) throw new Error('No remote "origin" configured');
     args = ['push', '-u', 'origin', 'HEAD'];
   }
-  const output = await git(cwd, args, { token, timeout: 300000 });
+  const output = await netGit(cwd, args, token, 300000);
   return { output, published: !upstream, status: await getStatus(cwd) };
 }
 
@@ -237,4 +280,52 @@ async function commitDetail(cwd, hash) {
   };
 }
 
-module.exports = { resolveRepo, getStatus, pull, push, changes, commitAll, log, commitDetail };
+// Nhánh local + nhánh remote chưa có bản local tương ứng.
+async function branches(cwd) {
+  const out = await git(cwd, [
+    'for-each-ref', '--sort=-committerdate',
+    `--format=%(refname)${FS}%(refname:short)${FS}%(upstream:short)${FS}%(committerdate:unix)`,
+    'refs/heads', 'refs/remotes',
+  ]);
+  const current = await tryGit(cwd, ['symbolic-ref', '--short', 'HEAD']);
+  const local = [];
+  const remote = [];
+  for (const line of out.split('\n').filter(Boolean)) {
+    const [ref, name, upstream, at] = line.split(FS);
+    const date = Number(at) * 1000;
+    if (ref.startsWith('refs/heads/')) local.push({ name, upstream, date, current: name === current });
+    else if (!ref.endsWith('/HEAD')) remote.push({ name, date });
+  }
+  const tracked = new Set(local.map((b) => b.upstream).filter(Boolean));
+  const localNames = new Set(local.map((b) => b.name));
+  return {
+    current,
+    local,
+    remote: remote.filter((r) => !tracked.has(r.name) && !localNames.has(r.name.slice(r.name.indexOf('/') + 1))),
+  };
+}
+
+// Chuyển nhánh. remote = true: tạo nhánh local theo dõi nhánh remote (git switch --track).
+async function switchBranch(cwd, name, { remote = false } = {}) {
+  if (!name || name.startsWith('-')) throw new Error('Invalid branch name');
+  await git(cwd, remote ? ['switch', '--track', name] : ['switch', name]);
+  return getStatus(cwd);
+}
+
+const DIFF_LIMIT = 512 * 1024;
+
+// Diff của một file trong commit (merge commit: so với parent đầu tiên).
+async function fileDiff(cwd, hash, file, from) {
+  if (!/^[0-9a-f]{7,40}$/i.test(hash)) throw new Error('Invalid commit hash');
+  const paths = from ? [from, file] : [file];
+  let diff = await git(cwd, [
+    'show', '--format=', '--diff-merges=first-parent', '-M', '--no-color', '--no-ext-diff', hash, '--', ...paths,
+  ], { raw: true });
+  const truncated = diff.length > DIFF_LIMIT;
+  if (truncated) diff = diff.slice(0, DIFF_LIMIT);
+  return { diff, truncated, binary: /^Binary files .* differ$/m.test(diff) };
+}
+
+module.exports = {
+  resolveRepo, getStatus, pull, push, changes, commitAll, log, commitDetail, branches, switchBranch, fileDiff,
+};

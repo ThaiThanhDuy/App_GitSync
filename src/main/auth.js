@@ -4,9 +4,10 @@
 //  3. Lấy token từ GitHub CLI (`gh auth token`) đã đăng nhập sẵn
 const { execFile } = require('child_process');
 
-// Client ID của GitHub OAuth App (bật "Enable Device Flow"). Có thể điền sẵn ở đây
-// trước khi build, đặt biến môi trường GITHUB_CLIENT_ID, hoặc nhập trong màn hình đăng nhập.
-const DEFAULT_CLIENT_ID = process.env.GITHUB_CLIENT_ID || '';
+// Client ID của GitHub OAuth App (bật "Enable Device Flow"). Điền vào trường
+// "githubClientId" trong package.json trước khi build để mọi người dùng đăng nhập bằng
+// trình duyệt được ngay; hoặc đặt biến môi trường GITHUB_CLIENT_ID; hoặc nhập trong app.
+const DEFAULT_CLIENT_ID = process.env.GITHUB_CLIENT_ID || require('../../package.json').githubClientId || '';
 const SCOPES = 'repo read:org';
 const UA = 'GitSyncDesktop';
 

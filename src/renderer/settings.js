@@ -19,6 +19,8 @@ async function openSettings() {
   const info = await api.settings.get();
   setThemeActive(info.theme);
   setIntervalInput(info.checkInterval);
+  $('#s-tray').checked = info.tray;
+  $('#s-autostart').checked = info.autostart;
   $('#s-version').textContent = `v${info.version}`;
   $('#s-runtime').textContent = `Electron ${info.electron} · ${info.platform}`;
 
@@ -85,6 +87,19 @@ $('#s-interval').addEventListener('change', () => {
 });
 $('#s-interval').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') e.target.blur();
+});
+
+// ----- Chạy nền -----
+$('#s-tray').addEventListener('change', async (e) => {
+  e.target.checked = await api.settings.setTray(e.target.checked);
+});
+$('#s-autostart').addEventListener('change', async (e) => {
+  try {
+    e.target.checked = await api.settings.setAutostart(e.target.checked);
+  } catch (err) {
+    e.target.checked = !e.target.checked;
+    toast(errMsg(err), 'bad');
+  }
 });
 
 $('#btn-settings').addEventListener('click', openSettings);

@@ -16,6 +16,7 @@ const hist = {
   selected: null,
   token: 0,
   headKey: null,
+  query: '',
 };
 
 const laneColor = (i) => LANE_COLORS[i % LANE_COLORS.length];
@@ -225,7 +226,33 @@ function renderHistory(start, animate) {
   ul.appendChild(frag);
   $('#h-empty').classList.toggle('hidden', hist.commits.length > 0);
   $('#h-more').classList.toggle('hidden', hist.done);
+  applyHistorySearch();
 }
+
+// ----- Tìm commit (trong các commit đã tải) theo message, tác giả, hash, tên nhánh/tag -----
+function commitMatches(c, q) {
+  return !q || fold(c.subject).includes(q) || fold(c.author).includes(q)
+    || c.hash.startsWith(q) || c.refs.some((r) => fold(r.name).includes(q));
+}
+
+function applyHistorySearch() {
+  const q = fold($('#h-search').value);
+  hist.query = q;
+  // Khi lọc, các hàng không còn liền nhau nên ẩn graph.
+  $('#h-canvas').classList.toggle('searching', !!q);
+  let n = 0;
+  for (const li of $('#h-commits').children) {
+    const ok = commitMatches(hist.commits[Number(li.dataset.i)], q);
+    li.classList.toggle('hidden', !ok);
+    if (ok) n++;
+  }
+  $('.h-search').classList.toggle('has-value', !!q);
+  $('#h-search-count').textContent = q ? `${n}/${hist.commits.length}` : '';
+  $('#h-search-empty').classList.toggle('hidden', !(q && !n));
+  $('#h-search-q').textContent = $('#h-search').value.trim();
+}
+
+const visibleCommits = () => hist.commits.filter((c) => commitMatches(c, hist.query));
 
 async function loadHistory({ reset = true, animate = true } = {}) {
   const token = ++hist.token;
@@ -373,7 +400,10 @@ function renderDetail(d) {
   const ul = el('ul', 'd-files');
   if (!d.files.length) ul.appendChild(el('li', 'd-empty', 'No file changes'));
   for (const f of d.files) {
-    const li = el('li');
+    const li = el('li', 'd-file');
+    li.title = 'Show changes';
+    li.addEventListener('click', () => toggleFileDiff(li, d.hash, f));
+    li.insertAdjacentHTML('beforeend', '<svg class="i d-chevron"><use href="#i-chevron-right"/></svg>');
     li.appendChild(el('span', `fcode ${f.code}`, f.code));
     const name = el('span', 'fname');
     const bdi = el('bdi', '', f.from ? `${f.from} → ${f.path}` : f.path);
@@ -389,6 +419,78 @@ function renderDetail(d) {
   }
   files.appendChild(ul);
   body.appendChild(files);
+}
+
+// ----- Diff -----
+function updateDetailWidth() {
+  $('#h-detail').classList.toggle('wide', !!document.querySelector('.d-diff-row'));
+}
+
+async function toggleFileDiff(li, hash, f) {
+  const next = li.nextElementSibling;
+  if (next?.classList.contains('d-diff-row')) {
+    next.remove();
+    li.classList.remove('open');
+    updateDetailWidth();
+    return;
+  }
+  li.classList.add('open');
+  const row = el('li', 'd-diff-row');
+  row.innerHTML = '<div class="h-loading"><span class="ring"></span></div>';
+  li.after(row);
+  updateDetailWidth();
+  try {
+    const res = await api.repos.fileDiff(hist.path, hash, f.path, f.from);
+    if (!row.isConnected) return;
+    row.innerHTML = '';
+    row.appendChild(renderDiff(res));
+  } catch (e) {
+    row.innerHTML = '';
+    row.appendChild(el('div', 'diff-note', errMsg(e)));
+  }
+}
+
+const DIFF_MAX_LINES = 3000;
+
+function renderDiff({ diff, truncated, binary }) {
+  const box = el('div', 'diff');
+  if (binary) {
+    box.appendChild(el('div', 'diff-note', 'Binary file — no preview'));
+    return box;
+  }
+  const lines = diff.split('\n');
+  let i = lines.findIndex((l) => l.startsWith('@@'));
+  if (i === -1) {
+    box.appendChild(el('div', 'diff-note', 'No text changes (empty file or permission change)'));
+    return box;
+  }
+  const add = (kind, a, b, text) => {
+    const row = el('div', `dl ${kind}`);
+    row.append(el('span', 'ln', String(a)), el('span', 'ln', String(b)), el('span', 'dl-code', text));
+    box.appendChild(row);
+  };
+  let oldNo = 0;
+  let newNo = 0;
+  let count = 0;
+  for (; i < lines.length; i++) {
+    const l = lines[i];
+    if (l.startsWith('diff --git')) break;
+    if (++count > DIFF_MAX_LINES) {
+      truncated = true;
+      break;
+    }
+    if (l.startsWith('@@')) {
+      const m = /^@@ -(\d+)(?:,\d+)? \+(\d+)/.exec(l);
+      if (m) [oldNo, newNo] = [Number(m[1]), Number(m[2])];
+      add('hunk', '', '', l);
+    } else if (l.startsWith('+')) add('add', '', newNo++, l.slice(1));
+    else if (l.startsWith('-')) add('del', oldNo++, '', l.slice(1));
+    else if (l.startsWith('\\')) add('meta', '', '', l.slice(2));
+    else if (l === '' && i === lines.length - 1) break;
+    else add('ctx', oldNo++, newNo++, l.slice(1));
+  }
+  if (truncated) box.appendChild(el('div', 'diff-note', 'Diff is too long — showing the first part only'));
+  return box;
 }
 
 // ----- Header + điều hướng -----
@@ -435,7 +537,9 @@ function openHistory(p) {
   hist.headKey = null;
   hist.commits = [];
   $('#h-detail').classList.add('hidden');
+  $('#h-detail').classList.remove('wide');
   $('#h-scroll').scrollTop = 0;
+  $('#h-search').value = '';
   switchView('#main-view', '#history-view', 'slide-in');
   renderHistoryHeader();
   loadHistory();
@@ -457,6 +561,17 @@ function setScope(all) {
 }
 
 $('#h-back').addEventListener('click', closeHistory);
+$('#h-branch-btn').addEventListener('click', (e) => openBranchMenu(hist.path, e.currentTarget));
+$('#h-search').addEventListener('input', applyHistorySearch);
+$('#h-search').addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    e.stopPropagation();
+    if (e.target.value) {
+      e.target.value = '';
+      applyHistorySearch();
+    } else e.target.blur();
+  }
+});
 $('#h-refresh').addEventListener('click', () => {
   const btn = $('#h-refresh');
   btn.classList.add('spinning');
@@ -478,11 +593,16 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
     if (hist.selected) closeDetail();
     else closeHistory();
+  } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+    e.preventDefault();
+    $('#h-search').focus();
+    $('#h-search').select();
   } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     e.preventDefault();
-    const i = hist.commits.findIndex((c) => c.hash === hist.selected);
-    const next = e.key === 'ArrowDown' ? Math.min(i + 1, hist.commits.length - 1) : Math.max(i - 1, 0);
-    if (hist.commits[next]) selectCommit(hist.commits[next].hash, { scroll: true });
+    const list = visibleCommits();
+    const i = list.findIndex((c) => c.hash === hist.selected);
+    const next = e.key === 'ArrowDown' ? Math.min(i + 1, list.length - 1) : Math.max(i - 1, 0);
+    if (list[next]) selectCommit(list[next].hash, { scroll: true });
   } else if (e.key === 'Backspace' && !e.target.closest('input, textarea')) {
     closeHistory();
   }
