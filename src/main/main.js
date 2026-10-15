@@ -28,7 +28,8 @@ if (!primaryInstance) {
 
 function createWindow({ show = true } = {}) {
   win = new BrowserWindow({
-    show,
+    // Chỉ hiện khi đã vẽ xong trang → không nháy khung trống lúc mở.
+    show: false,
     width: 980,
     height: 680,
     minWidth: 720,
@@ -47,6 +48,7 @@ function createWindow({ show = true } = {}) {
     },
   });
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+  if (show) win.once('ready-to-show', () => win.show());
 
   // Đóng cửa sổ → ẩn xuống khay (nếu bật), app vẫn chạy và tự kiểm tra.
   win.on('close', (e) => {
@@ -166,6 +168,9 @@ async function finishLogin(token) {
 }
 
 // ---------- Auth ----------
+// Thông tin đăng nhập đã lưu (không gọi mạng) để vào app ngay; kiểm tra token chạy ở nền.
+ipcMain.handle('auth:cached', () => (store.getToken() && store.get('user') ? { user: store.get('user') } : null));
+
 ipcMain.handle('auth:session', async () => {
   const token = store.getToken();
   if (!token) return null;

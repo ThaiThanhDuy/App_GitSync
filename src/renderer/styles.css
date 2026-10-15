@@ -648,6 +648,8 @@ main { flex: 1; overflow-y: auto; padding: 20px 16px 28px; }
   transition: background .12s;
 }
 .h-row.fresh { animation: row-in .35s var(--ease) both; }
+/* Bỏ qua layout/vẽ các dòng commit nằm ngoài màn hình (lịch sử dài vài trăm dòng). */
+.h-row:not(.fresh) { content-visibility: auto; contain-intrinsic-size: auto 34px; }
 .h-row:hover { background: var(--hover); }
 .h-row.selected { background: var(--hover); box-shadow: inset 2px 0 0 var(--text); }
 .h-msg { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; }

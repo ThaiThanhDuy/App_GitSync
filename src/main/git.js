@@ -68,47 +68,68 @@ async function resolveRepo(folder) {
   }
 }
 
+// Trạng thái repo. Một lệnh `git status --porcelain=v2 --branch` cho cùng lúc nhánh, upstream,
+// ahead/behind và số file thay đổi; chạy song song với lấy thời gian commit cuối + URL remote.
+// --no-optional-locks: không giữ index.lock, tránh tranh chấp với git người dùng đang chạy.
 async function getStatus(cwd, { fetch = false, token } = {}) {
   const status = { path: cwd, checkedAt: Date.now() };
   if (!fs.existsSync(cwd)) return { ...status, state: 'error', error: `Folder not found: ${cwd}` };
 
-  const ct = await tryGit(cwd, ['log', '-1', '--format=%ct']);
-  status.lastCommitAt = ct ? Number(ct) * 1000 : null;
-  status.branch = await tryGit(cwd, ['symbolic-ref', '--short', 'HEAD']);
-  if (!status.branch) {
-    const sha = await tryGit(cwd, ['rev-parse', '--short', 'HEAD']);
-    if (sha === null && (await tryGit(cwd, ['rev-parse', '--git-dir'])) === null) {
-      return { ...status, state: 'error', error: 'Folder is no longer a git repository' };
-    }
-    return { ...status, state: 'detached', branch: sha ? `(detached ${sha})` : '(detached)' };
-  }
-
-  status.remoteUrl = await tryGit(cwd, ['remote', 'get-url', 'origin']);
-
+  let fetchError = null;
   if (fetch) {
     try {
       await netGit(cwd, ['fetch', '--prune', '--quiet'], token, 60000);
     } catch (e) {
-      status.fetchError = e.message;
+      fetchError = e.message;
     }
   }
 
-  status.upstream = await tryGit(cwd, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']);
-  const porcelain = await tryGit(cwd, ['status', '--porcelain']);
-  status.dirty = porcelain ? porcelain.split('\n').filter(Boolean).length : 0;
-
-  if (!status.upstream) {
-    return { ...status, state: 'no-upstream' };
+  let out;
+  let ct;
+  try {
+    [out, ct, status.remoteUrl] = await Promise.all([
+      git(cwd, ['--no-optional-locks', 'status', '--porcelain=v2', '--branch'], { raw: true }),
+      tryGit(cwd, ['log', '-1', '--format=%ct']),
+      tryGit(cwd, ['remote', 'get-url', 'origin']),
+    ]);
+  } catch (e) {
+    const error = /not a git repository/i.test(e.message) ? 'Folder is no longer a git repository' : e.message;
+    return { ...status, state: 'error', error };
   }
+  status.lastCommitAt = ct ? Number(ct) * 1000 : null;
 
-  const counts = await tryGit(cwd, ['rev-list', '--left-right', '--count', 'HEAD...@{u}']);
-  const [ahead, behind] = (counts || '0\t0').split(/\s+/).map(Number);
-  status.ahead = ahead;
-  status.behind = behind;
+  let oid = '';
+  let head = '';
+  let upstream = null;
+  let ab = null;
+  let dirty = 0;
+  for (const line of out.split('\n')) {
+    if (!line) continue;
+    if (line[0] !== '#') dirty++;
+    else if (line.startsWith('# branch.oid ')) oid = line.slice(13);
+    else if (line.startsWith('# branch.head ')) head = line.slice(14);
+    else if (line.startsWith('# branch.upstream ')) upstream = line.slice(18);
+    else if (line.startsWith('# branch.ab ')) ab = line.slice(12);
+  }
+  status.dirty = dirty;
 
-  if (status.fetchError) status.state = 'error';
-  else if (behind > 0 && ahead > 0) status.state = 'diverged';
-  else status.state = behind > 0 ? 'behind' : 'uptodate';
+  if (head === '(detached)') {
+    const sha = oid && oid !== '(initial)' ? oid.slice(0, 7) : '';
+    return { ...status, state: 'detached', branch: sha ? `(detached ${sha})` : '(detached)' };
+  }
+  status.branch = head;
+  if (fetchError) status.fetchError = fetchError;
+
+  // Không có dòng branch.ab nghĩa là upstream đã cấu hình nhưng nhánh remote không còn.
+  const m = ab && /^\+(\d+) -(\d+)$/.exec(ab);
+  if (!upstream || !m) return { ...status, state: 'no-upstream' };
+
+  status.upstream = upstream;
+  status.ahead = Number(m[1]);
+  status.behind = Number(m[2]);
+  if (fetchError) status.state = 'error';
+  else if (status.behind > 0 && status.ahead > 0) status.state = 'diverged';
+  else status.state = status.behind > 0 ? 'behind' : 'uptodate';
   return status;
 }
 
@@ -229,15 +250,14 @@ async function log(cwd, { skip = 0, limit = 300, all = true } = {}) {
 
 async function commitDetail(cwd, hash) {
   if (!/^[0-9a-f]{7,40}$/i.test(hash)) throw new Error('Invalid commit hash');
-  const meta = await git(cwd, ['show', '-s', `--format=%H${FS}%P${FS}%an${FS}%ae${FS}%at${FS}%cn${FS}%ct${FS}%B`, hash], { raw: true });
-  const [full, parents, author, email, at, committer, ct, body] = meta.split(FS);
-
-  // Merge commit: so với parent đầu tiên.
+  // Merge commit: so với parent đầu tiên. Ba lệnh chạy song song.
   const diffArgs = ['show', '--format=', '--diff-merges=first-parent', '-M', hash];
-  const [nameStatus, numstat] = await Promise.all([
+  const [meta, nameStatus, numstat] = await Promise.all([
+    git(cwd, ['show', '-s', `--format=%H${FS}%P${FS}%an${FS}%ae${FS}%at${FS}%cn${FS}%ct${FS}%B`, hash], { raw: true }),
     git(cwd, [...diffArgs, '--name-status', '-z'], { raw: true }),
     git(cwd, [...diffArgs, '--numstat', '-z'], { raw: true }),
   ]);
+  const [full, parents, author, email, at, committer, ct, body] = meta.split(FS);
 
   const files = [];
   const ns = nameStatus.split('\0').filter((x) => x !== '');

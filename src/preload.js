@@ -5,6 +5,7 @@ const call = (channel) => (...args) => ipcRenderer.invoke(channel, ...args);
 contextBridge.exposeInMainWorld('api', {
   auth: {
     session: call('auth:session'),
+    cached: call('auth:cached'),
     config: call('auth:config'),
     setClientId: call('auth:setClientId'),
     deviceStart: call('auth:deviceStart'),

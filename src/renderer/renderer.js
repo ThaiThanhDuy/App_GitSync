@@ -237,14 +237,18 @@ function relTime(ms) {
   return 'just now';
 }
 
-function enterApp(user, offline) {
-  $('#login-view').classList.add('hidden');
-  $('#main-view').classList.remove('hidden');
+function showUser(user) {
   currentUser = user;
   $('#user-login').textContent = user.login;
   $('.user').title = `Settings — ${user.name ? `${user.name} (@${user.login})` : `@${user.login}`}`;
   $('#user-avatar').src = user.avatarUrl || '';
   $('#user-avatar').classList.toggle('hidden', !user.avatarUrl);
+}
+
+function enterApp(user, offline) {
+  $('#login-view').classList.add('hidden');
+  $('#main-view').classList.remove('hidden');
+  showUser(user);
   if (offline) toast('Could not reach GitHub — using saved sign-in info.', 'warn', 6000);
   loadRepos();
   api.settings.get().then((info) => scheduleAutoCheck(info.checkInterval));
@@ -257,6 +261,18 @@ async function loadRepos() {
   rows.clear();
   for (const r of list) addEntry(r);
   render();
+  // Đọc trạng thái local trước (vài ms/repo, không cần mạng) để hiện ngay nhánh + trạng thái,
+  // sau đó mới fetch từng repo.
+  await runPool([...repos.keys()], async (p) => {
+    const entry = repos.get(p);
+    if (!entry || entry.busy || entry.status) return;
+    try {
+      entry.status = await api.repos.status(p, false);
+    } catch {
+      return;
+    }
+    render();
+  }, 8);
   checkAll();
 }
 
@@ -368,7 +384,18 @@ function updateRow(li, entry) {
   $('.act-remove', li).disabled = entry.busy;
 }
 
+// Gom nhiều lần cập nhật sát nhau (mỗi repo trả kết quả riêng) thành một lần vẽ.
+// Dùng setTimeout thay vì requestAnimationFrame để vẫn chạy khi cửa sổ ẩn trong khay.
+let renderTimer = null;
 function render() {
+  if (renderTimer) return;
+  renderTimer = setTimeout(() => {
+    renderTimer = null;
+    renderNow();
+  }, 16);
+}
+
+function renderNow() {
   for (const [p, entry] of repos) {
     let li = rows.get(p);
     if (!li) {
@@ -626,9 +653,9 @@ async function pushRepo(p) {
   return ok;
 }
 
-async function runPool(items, fn) {
+async function runPool(items, fn, limit = CONCURRENCY) {
   const queue = [...items];
-  const workers = Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
+  const workers = Array.from({ length: Math.min(limit, queue.length) }, async () => {
     while (queue.length) await fn(queue.shift());
   });
   await Promise.all(workers);
@@ -939,6 +966,17 @@ $('#btn-sync-all').addEventListener('click', syncAll);
 
 // ======================= Khởi động =======================
 (async () => {
+  // Có token + thông tin user đã lưu → vào app ngay, kiểm tra token với GitHub ở nền.
+  const cached = await api.auth.cached();
+  if (cached) {
+    enterApp(cached.user);
+    const session = await api.auth.session();
+    if (!currentUser) return;
+    if (!session) $('#auth-banner').classList.remove('hidden');
+    else if (session.offline) toast('Could not reach GitHub — using saved sign-in info.', 'warn', 6000);
+    else showUser(session.user);
+    return;
+  }
   const session = await api.auth.session();
   if (session) enterApp(session.user, session.offline);
   else showLogin();

@@ -15,6 +15,8 @@ async function fetchUser(token) {
   let res;
   try {
     res = await fetch('https://api.github.com/user', {
+      // Không chờ vô hạn khi mạng chậm/mất: quá 10 giây coi như offline.
+      signal: AbortSignal.timeout(10000),
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: 'application/vnd.github+json',
