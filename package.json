@@ -1,0 +1,46 @@
+{
+  "name": "git-sync-desktop",
+  "version": "1.0.0",
+  "description": "Track and sync (git pull) multiple GitHub repositories",
+  "homepage": "https://github.com/ThaiThanhDuy",
+  "main": "src/main/main.js",
+  "author": "duy <vuanhs3016s@gmail.com>",
+  "license": "MIT",
+  "scripts": {
+    "start": "node scripts/start.js",
+    "build": "node scripts/build.js",
+    "build:linux": "node scripts/build.js linux",
+    "build:win": "node scripts/build.js win",
+    "build:all": "node scripts/build.js all"
+  },
+  "build": {
+    "appId": "com.duy.gitsync",
+    "productName": "Git Sync",
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "afterPack": "build/after-pack.js",
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Development",
+      "maintainer": "duy <vuanhs3016s@gmail.com>"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
+  "devDependencies": {
+    "electron": "33.2.1",
+    "electron-builder": "25.1.8"
+  }
+}

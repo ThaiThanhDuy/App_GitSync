@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; img-src 'self' https://avatars.githubusercontent.com data:; style-src 'self'; script-src 'self'">
+  <title>Git Sync</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Bộ icon nét mảnh (stroke) dùng chung -->
+  <svg width="0" height="0" class="sprite" aria-hidden="true">
+    <defs>
+      <symbol id="i-logo" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8"/><path d="M4 3v5h5"/><path d="M4 13a8 8 0 0 0 14.3 4.9L20 16"/><path d="M20 21v-5h-5"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5 10 17l9-10"/></symbol>
+      <symbol id="i-x" viewBox="0 0 24 24"><path d="M17 7 7 17M7 7l10 10"/></symbol>
+      <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 7v6"/><path d="M12 17h.01"/></symbol>
+      <symbol id="i-dot" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1.5"/></symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></symbol>
+      <symbol id="i-push" viewBox="0 0 24 24"><path d="M12 20V9"/><path d="m7 14 5-5 5 5"/><path d="M5 4h14"/></symbol>
+      <symbol id="i-pull" viewBox="0 0 24 24"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2h8.5A1.5 1.5 0 0 1 21 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M9 7V4.5h6V7"/><path d="M6.5 7l.8 12.5h9.4L17.5 7"/></symbol>
+      <symbol id="i-branch" viewBox="0 0 24 24"><circle cx="6" cy="5.5" r="2"/><circle cx="6" cy="18.5" r="2"/><circle cx="18" cy="7" r="2"/><path d="M6 7.5v9"/><path d="M18 9c0 5-6 4.5-11 8"/></symbol>
+      <symbol id="i-arrow-up" viewBox="0 0 24 24"><path d="M12 19V5"/><path d="m6 11 6-6 6 6"/></symbol>
+      <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/></symbol>
+      <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17"/><path d="M12 3.5c2.5 2.6 3.5 5.3 3.5 8.5s-1 5.9-3.5 8.5c-2.5-2.6-3.5-5.3-3.5-8.5s1-5.9 3.5-8.5z"/></symbol>
+      <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="m11 12 8.5-8.5"/><path d="m16 7 2.5 2.5"/></symbol>
+      <symbol id="i-terminal" viewBox="0 0 24 24"><path d="m5 7 5 5-5 5"/><path d="M12 18h7"/></symbol>
+      <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+      <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></symbol>
+      <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 5.5v-.5a1.5 1.5 0 0 0-1.5-1.5H5A1.5 1.5 0 0 0 3.5 5v9A1.5 1.5 0 0 0 5 15.5h.5"/></symbol>
+      <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v4.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"/></symbol>
+      <symbol id="i-logout" viewBox="0 0 24 24"><path d="M10 4H5.5A1.5 1.5 0 0 0 4 5.5v13A1.5 1.5 0 0 0 5.5 20H10"/><path d="m15 8 4 4-4 4"/><path d="M19 12H9"/></symbol>
+      <symbol id="i-commit" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.5"/><path d="M3 12h5.5M15.5 12H21"/></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></symbol>
+      <symbol id="i-sort" viewBox="0 0 24 24"><path d="M7 4v16"/><path d="m3 8 4-4 4 4"/><path d="M17 20V4"/><path d="m13 16 4 4 4-4"/></symbol>
+      <symbol id="i-sort-asc" viewBox="0 0 24 24"><path d="M4 7h8M4 12h11M4 17h14"/></symbol>
+      <symbol id="i-sort-desc" viewBox="0 0 24 24"><path d="M4 7h14M4 12h11M4 17h8"/></symbol>
+      <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
+      <symbol id="i-history" viewBox="0 0 24 24"><path d="M3.5 12a8.5 8.5 0 1 0 2.5-6"/><path d="M3.5 4v4.5H8"/><path d="M12 8v4l3 2"/></symbol>
+      <symbol id="i-tag" viewBox="0 0 24 24"><path d="M3.5 12.5V4.5a1 1 0 0 1 1-1h8l8 8-9 9z"/><circle cx="8" cy="8" r="1.2"/></symbol>
+      <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7 18.5a4.5 4.5 0 0 1-.5-9 6 6 0 0 1 11.5 1.5 4 4 0 0 1-.5 7.5z"/></symbol>
+      <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+      <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M4.6 4.6l1.4 1.4M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4 6 18M18 6l1.4-1.4"/></symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></symbol>
+      <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12.5" rx="1.5"/><path d="M8.5 20.5h7M12 16.5v4"/></symbol>
+      <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></symbol>
+    </defs>
+  </svg>
+
+  <!-- ===================== Đăng nhập ===================== -->
+  <section id="login-view" class="view hidden">
+    <div class="login">
+      <div class="login-head">
+        <div class="logo"><svg class="i"><use href="#i-logo"/></svg></div>
+        <h1>Git Sync</h1>
+        <p class="muted">Sign in to GitHub to continue</p>
+      </div>
+
+      <div class="panes">
+        <!-- Chọn cách đăng nhập -->
+        <div class="pane" data-pane="choose">
+          <div class="options">
+            <button class="option" id="btn-device">
+              <svg class="i"><use href="#i-globe"/></svg>
+              <span class="option-text">
+                <span class="option-title">Continue with browser</span>
+                <span class="option-sub">Confirm with a code on github.com</span>
+              </span>
+              <svg class="i chevron"><use href="#i-chevron-right"/></svg>
+            </button>
+            <button class="option" id="btn-show-token">
+              <svg class="i"><use href="#i-key"/></svg>
+              <span class="option-text">
+                <span class="option-title">Personal Access Token</span>
+                <span class="option-sub">Paste a token with repo scope</span>
+              </span>
+              <svg class="i chevron"><use href="#i-chevron-right"/></svg>
+            </button>
+            <button class="option" id="btn-gh">
+              <svg class="i"><use href="#i-terminal"/></svg>
+              <span class="option-text">
+                <span class="option-title">GitHub CLI</span>
+                <span class="option-sub">Use the account signed in to gh</span>
+              </span>
+              <svg class="i chevron"><use href="#i-chevron-right"/></svg>
+            </button>
+          </div>
+          <button class="link-btn" id="btn-show-advanced">
+            <svg class="i"><use href="#i-settings"/></svg> Configure OAuth Client ID
+          </button>
+        </div>
+
+        <!-- Token -->
+        <div class="pane hidden" data-pane="token">
+          <button class="back" data-back><svg class="i"><use href="#i-chevron-left"/></svg> Back</button>
+          <label class="field">
+            <span>Personal Access Token</span>
+            <input id="input-token" type="password" placeholder="ghp_… or github_pat_…" autocomplete="off" spellcheck="false">
+          </label>
+          <button id="btn-token" class="btn primary block">Sign in</button>
+          <button class="link-btn" id="link-new-token">
+            Create a new token on GitHub <svg class="i"><use href="#i-external"/></svg>
+          </button>
+        </div>
+
+        <!-- Device flow -->
+        <div class="pane hidden" data-pane="device">
+          <button class="back" id="btn-device-cancel"><svg class="i"><use href="#i-chevron-left"/></svg> Cancel</button>
+          <p class="muted center">Enter this code on the GitHub page that just opened</p>
+          <button class="code" id="device-code" title="Click to copy"></button>
+          <div class="waiting"><span class="dots"><i></i><i></i><i></i></span> Waiting for confirmation</div>
+          <button id="btn-device-open" class="btn block">
+            <svg class="i"><use href="#i-external"/></svg> Reopen browser
+          </button>
+        </div>
+
+        <!-- Nâng cao -->
+        <div class="pane hidden" data-pane="advanced">
+          <button class="back" data-back><svg class="i"><use href="#i-chevron-left"/></svg> Back</button>
+          <label class="field">
+            <span>OAuth Client ID</span>
+            <input id="input-client-id" type="text" placeholder="Ov23li…" autocomplete="off" spellcheck="false">
+          </label>
+          <p class="hint">Client ID of a GitHub OAuth App with “Enable Device Flow” turned on. Required for browser sign-in.</p>
+          <button id="btn-client-id" class="btn primary block">Save</button>
+        </div>
+      </div>
+
+      <div id="login-error" class="login-error hidden"></div>
+    </div>
+  </section>
+
+  <!-- ===================== Màn hình chính ===================== -->
+  <section id="main-view" class="view hidden">
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo sm"><svg class="i"><use href="#i-logo"/></svg></div>
+        <span>Git Sync</span>
+      </div>
+      <div id="summary" class="summary"></div>
+      <div class="spacer"></div>
+      <button id="btn-check-all" class="icon-btn" title="Check all">
+        <svg class="i"><use href="#i-refresh"/></svg>
+      </button>
+      <button id="btn-sync-all" class="btn" title="Pull every repo that is behind">
+        <svg class="i"><use href="#i-pull"/></svg> Sync all
+      </button>
+      <button id="btn-add" class="btn primary">
+        <svg class="i"><use href="#i-plus"/></svg> Add folder
+      </button>
+      <div class="divider"></div>
+      <button class="user" id="btn-settings" title="Settings">
+        <img id="user-avatar" alt="">
+        <span id="user-login"></span>
+      </button>
+      <button id="btn-logout" class="icon-btn" title="Sign out">
+        <svg class="i"><use href="#i-logout"/></svg>
+      </button>
+    </header>
+
+    <main>
+      <div id="list-tools" class="list-tools hidden">
+        <label class="search">
+          <svg class="i"><use href="#i-search"/></svg>
+          <input id="search" type="text" placeholder="Search projects…" autocomplete="off" spellcheck="false">
+          <button id="search-clear" class="search-clear hidden" title="Clear search"><svg class="i"><use href="#i-x"/></svg></button>
+          <kbd>Ctrl F</kbd>
+        </label>
+        <div class="sort">
+          <button id="sort-btn" class="btn sort-btn" aria-haspopup="menu">
+            <svg class="i"><use href="#i-sort"/></svg>
+            <span id="sort-label"></span>
+            <svg class="i chevron"><use href="#i-chevron-down"/></svg>
+          </button>
+          <div id="sort-menu" class="menu hidden" role="menu">
+            <button class="menu-item" data-sort="status" role="menuitemradio">Status<svg class="i"><use href="#i-check"/></svg></button>
+            <button class="menu-item" data-sort="commit" role="menuitemradio">Latest commit<svg class="i"><use href="#i-check"/></svg></button>
+            <button class="menu-item" data-sort="added" role="menuitemradio">Date added<svg class="i"><use href="#i-check"/></svg></button>
+            <button class="menu-item" data-sort="name" role="menuitemradio">Name<svg class="i"><use href="#i-check"/></svg></button>
+          </div>
+        </div>
+        <button id="sort-dir" class="icon-btn bordered" title="Reverse order"><svg class="i"><use href="#i-sort-desc"/></svg></button>
+      </div>
+
+      <div id="no-match" class="no-match hidden">
+        <svg class="i"><use href="#i-search"/></svg>
+        <span>No projects match “<b id="no-match-q"></b>”</span>
+      </div>
+
+      <div id="empty" class="empty hidden">
+        <div class="empty-icon"><svg class="i"><use href="#i-folder"/></svg></div>
+        <h2>No repositories yet</h2>
+        <p class="muted">Add a folder that has been <code>git init</code>-ed to start tracking it.</p>
+        <button id="btn-add-empty" class="btn primary"><svg class="i"><use href="#i-plus"/></svg> Add folder</button>
+      </div>
+      <ul id="repo-list" class="repo-list"></ul>
+    </main>
+
+    <footer class="statusbar">
+      <span id="last-check"></span>
+      <span id="auto-check-label">Auto-checks every 5 minutes</span>
+    </footer>
+  </section>
+
+  <!-- ===================== Lịch sử git ===================== -->
+  <section id="history-view" class="view hidden">
+    <header class="topbar">
+      <button id="h-back" class="icon-btn" title="Back (Esc)"><svg class="i"><use href="#i-chevron-left"/></svg></button>
+      <div class="h-title">
+        <div class="h-name-row">
+          <span id="h-name" class="h-name"></span>
+          <span class="chip"><svg class="i"><use href="#i-branch"/></svg><span id="h-branch"></span></span>
+        </div>
+        <div id="h-state" class="h-state"></div>
+      </div>
+      <div class="spacer"></div>
+      <div class="segmented" role="tablist">
+        <button id="h-scope-all" class="seg active" role="tab">All branches</button>
+        <button id="h-scope-head" class="seg" role="tab">Current branch</button>
+      </div>
+      <button id="h-refresh" class="icon-btn" title="Reload"><svg class="i"><use href="#i-refresh"/></svg></button>
+      <button id="h-open" class="icon-btn" title="Open folder"><svg class="i"><use href="#i-folder"/></svg></button>
+      <button id="h-commit" class="btn hidden"><svg class="i"><use href="#i-commit"/></svg> Commit</button>
+      <button id="h-push" class="btn hidden"><svg class="i"><use href="#i-push"/></svg> <span>Push</span></button>
+      <button id="h-sync" class="btn"><svg class="i"><use href="#i-pull"/></svg> Sync</button>
+    </header>
+
+    <div class="h-body">
+      <div id="h-scroll" class="h-scroll">
+        <div id="h-canvas" class="h-canvas">
+          <svg id="h-graph" class="h-graph"></svg>
+          <ul id="h-commits" class="h-commits"></ul>
+        </div>
+        <div id="h-loading" class="h-loading"><span class="ring"></span></div>
+        <div id="h-empty" class="no-match hidden">
+          <svg class="i"><use href="#i-history"/></svg>
+          <span>This repository has no commits yet</span>
+        </div>
+        <button id="h-more" class="btn h-more hidden">Load more commits</button>
+      </div>
+
+      <aside id="h-detail" class="h-detail hidden">
+        <div class="h-detail-head">
+          <span class="muted small-label">Commit details</span>
+          <button id="h-detail-close" class="icon-btn" title="Close"><svg class="i"><use href="#i-x"/></svg></button>
+        </div>
+        <div id="h-detail-body" class="h-detail-body"></div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ===================== Cài đặt ===================== -->
+  <section id="settings-view" class="view hidden">
+    <header class="topbar">
+      <button id="s-back" class="icon-btn" title="Back (Esc)"><svg class="i"><use href="#i-chevron-left"/></svg></button>
+      <span class="s-title">Settings</span>
+    </header>
+
+    <main class="s-main">
+      <div class="s-wrap">
+        <section class="s-section">
+          <h4 class="s-label">Account</h4>
+          <div class="s-card s-account">
+            <img id="s-avatar" alt="">
+            <div class="s-account-text">
+              <span id="s-name" class="s-name"></span>
+              <span id="s-login" class="muted"></span>
+            </div>
+            <button id="s-logout" class="btn"><svg class="i"><use href="#i-logout"/></svg> Sign out</button>
+          </div>
+        </section>
+
+        <section class="s-section">
+          <h4 class="s-label">Sync</h4>
+          <div class="s-card s-setting">
+            <div class="s-row-head">
+              <span>Auto-check interval</span>
+              <span class="muted">How often to fetch and check every repository (minimum 1 minute)</span>
+            </div>
+            <div class="stepper">
+              <button id="s-int-dec" class="stepper-btn" title="Decrease"><svg class="i"><use href="#i-minus"/></svg></button>
+              <input id="s-interval" type="number" min="1" max="1440" step="1" inputmode="numeric">
+              <span class="stepper-unit" id="s-interval-unit">min</span>
+              <button id="s-int-inc" class="stepper-btn" title="Increase"><svg class="i"><use href="#i-plus"/></svg></button>
+            </div>
+          </div>
+        </section>
+
+        <section class="s-section">
+          <h4 class="s-label">Appearance</h4>
+          <div class="s-card">
+            <div class="s-row-head">
+              <span>Theme</span>
+              <span class="muted">Choose how Git Sync looks</span>
+            </div>
+            <div class="themes" role="radiogroup">
+              <button class="theme-opt" data-theme="light" role="radio">
+                <span class="preview light"><i></i><i></i><i></i></span>
+                <span class="theme-name"><svg class="i"><use href="#i-sun"/></svg> Light</span>
+              </button>
+              <button class="theme-opt" data-theme="dark" role="radio">
+                <span class="preview dark"><i></i><i></i><i></i></span>
+                <span class="theme-name"><svg class="i"><use href="#i-moon"/></svg> Dark</span>
+              </button>
+              <button class="theme-opt" data-theme="system" role="radio">
+                <span class="preview system">
+                  <span class="half light"><i></i><i></i><i></i></span>
+                  <span class="half dark"><i></i><i></i><i></i></span>
+                </span>
+                <span class="theme-name"><svg class="i"><use href="#i-monitor"/></svg> System</span>
+              </button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <footer class="s-footer">
+      <div class="logo sm"><svg class="i"><use href="#i-logo"/></svg></div>
+      <span>Git Sync <b id="s-version"></b></span>
+      <span id="s-runtime" class="muted"></span>
+    </footer>
+  </section>
+
+  <template id="repo-tpl">
+    <li class="repo">
+      <div class="state"><svg class="i"><use href="#i-dot"/></svg></div>
+      <div class="info">
+        <div class="title-row">
+          <span class="name"></span>
+          <span class="chip branch"><svg class="i"><use href="#i-branch"/></svg><span></span></span>
+          <span class="chip ahead hidden"><svg class="i"><use href="#i-arrow-up"/></svg><span></span></span>
+          <span class="chip dirty hidden"><svg class="i"><use href="#i-edit"/></svg><span></span></span>
+        </div>
+        <div class="detail"></div>
+        <div class="sub">
+          <span class="time hidden"><svg class="i"><use href="#i-clock"/></svg><span></span></span>
+          <span class="path"></span>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="icon-btn act-open" title="Open folder"><svg class="i"><use href="#i-folder"/></svg></button>
+        <button class="icon-btn act-remove" title="Remove from list"><svg class="i"><use href="#i-trash"/></svg></button>
+        <button class="icon-btn act-refresh" title="Check again"><svg class="i"><use href="#i-refresh"/></svg></button>
+        <button class="btn act-commit hidden"><svg class="i"><use href="#i-commit"/></svg> Commit</button>
+        <button class="btn act-push hidden"><svg class="i"><use href="#i-push"/></svg> <span>Push</span></button>
+        <button class="btn act-sync"><svg class="i"><use href="#i-pull"/></svg> Sync</button>
+      </div>
+      <div class="progress"></div>
+    </li>
+  </template>
+
+  <dialog id="confirm" class="dialog">
+    <form method="dialog">
+      <h3 id="confirm-title"></h3>
+      <p id="confirm-text" class="muted"></p>
+      <div class="dialog-actions">
+        <button value="cancel" class="btn">Cancel</button>
+        <button value="ok" class="btn danger" id="confirm-ok">Remove</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="commit-dlg" class="dialog commit-dlg">
+    <form method="dialog" id="commit-form">
+      <div class="commit-head">
+        <h3>Commit <span id="commit-repo" class="muted"></span></h3>
+        <span class="chip"><svg class="i"><use href="#i-branch"/></svg><span id="commit-branch"></span></span>
+      </div>
+      <div class="commit-files-label">
+        <span id="commit-count" class="muted"></span>
+        <span class="muted small-mono">git add .</span>
+      </div>
+      <ul id="commit-files" class="commit-files"></ul>
+      <textarea id="commit-msg" rows="3" placeholder="Describe your changes…" spellcheck="false"></textarea>
+      <div id="commit-error" class="dialog-error hidden"></div>
+      <div class="dialog-actions">
+        <span class="kbd-hint">Ctrl + Enter</span>
+        <button value="cancel" class="btn" formnovalidate>Cancel</button>
+        <button id="commit-ok" class="btn primary" value="ok">
+          <svg class="i"><use href="#i-commit"/></svg> Commit
+        </button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toasts" class="toasts"></div>
+
+  <script src="renderer.js"></script>
+  <script src="history.js"></script>
+  <script src="settings.js"></script>
+</body>
+</html>
